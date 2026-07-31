@@ -1,133 +1,155 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
+use std::str::FromStr;
+use strum::IntoEnumIterator;
+use strum_macros::{Display, EnumIter, EnumString};
 
-type Users = HashMap<Department, Vec<String>>;
+#[derive(Debug, PartialEq, Eq, Hash, Clone, EnumIter, Display, EnumString)]
+pub enum Department {
+    #[strum(ascii_case_insensitive)]
+    Engineering,
+
+    #[strum(serialize = "Human Resources", ascii_case_insensitive)]
+    HR,
+
+    #[strum(ascii_case_insensitive)]
+    Sales,
+}
+
+pub struct Directory {
+    users: HashMap<Department, Vec<String>>,
+}
+
+impl Default for Directory {
+    fn default() -> Self {
+        let mut users = HashMap::new();
+        for dept in Department::iter() {
+            users.insert(dept, Vec::new());
+        }
+        Directory { users }
+    }
+}
+
+impl Directory {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add(&mut self, user: String, department: Department) {
+        println!("Successfully added {user} to {department}.");
+        if let Some(names) = self.users.get_mut(&department) {
+            names.push(user);
+        }
+    }
+
+    pub fn retrieve(&self, target_dept: Option<Department>) {
+        if let Some(dept) = target_dept {
+            match self.users.get(&dept) {
+                Some(names) => self.print_dept(&dept, names),
+                None => println!("{dept} does not exist in the directory."),
+            }
+        } else {
+            let total_users: usize = self.users.values().map(|v| v.len()).sum();
+            if total_users == 0 {
+                println!("The directory is currently entirely empty.");
+                return;
+            }
+
+            for dept in Department::iter() {
+                if let Some(names) = self.users.get(&dept) {
+                    self.print_dept(&dept, names);
+                }
+            }
+        }
+    }
+
+    fn print_dept(&self, dept: &Department, names: &[String]) {
+        println!("{dept}:");
+        if names.is_empty() {
+            println!("  (empty)");
+        } else {
+            let mut sorted_names = names.to_vec();
+            sorted_names.sort();
+            for name in &sorted_names {
+                println!(" - {name}");
+            }
+        }
+    }
+}
+
+pub enum Command {
+    AddUser(String, Department),
+    RetrieveUsers(Option<Department>),
+}
+
+impl FromStr for Command {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let tokens: Vec<&str> = s.split_whitespace().collect();
+        match tokens.as_slice() {
+            ["add", name, "to", dept_str @ ..] => {
+                if dept_str.is_empty() {
+                    return Err(Error::ParseError);
+                }
+                let dept_combined = dept_str.join(" ");
+                let department = dept_combined
+                    .parse()
+                    .map_err(|_| Error::InvalidDepartment)?;
+                Ok(Command::AddUser(name.to_string(), department))
+            }
+            ["add", ..] => Err(Error::ParseError),
+            ["retrieve"] => Ok(Command::RetrieveUsers(None)),
+            ["retrieve", dept_str @ ..] => {
+                let dept_combined = dept_str.join(" ");
+                let department = dept_combined
+                    .parse()
+                    .map_err(|_| Error::InvalidDepartment)?;
+                Ok(Command::RetrieveUsers(Some(department)))
+            }
+            _ => Err(Error::InvalidCommand),
+        }
+    }
+}
+
+#[derive(Debug, Display)]
+pub enum Error {
+    #[strum(serialize = "Command format must be 'add [name] to [dept]'")]
+    ParseError,
+
+    #[strum(serialize = "Unknown command. Try 'add', 'retrieve', or 'exit'")]
+    InvalidCommand,
+
+    #[strum(serialize = "Department must be Engineering, Sales, or Human Resources.")]
+    InvalidDepartment,
+}
 
 pub fn run() {
-    let mut users: Users = HashMap::new();
-
+    let mut directory = Directory::new();
     println!("--- Company Directory Interface ---");
     println!("Commands: 'add [name] to [dept]', 'retrieve', 'exit'");
 
     loop {
         print!("\nInput command: ");
-        io::stdout().flush().unwrap();
+        if io::stdout().flush().is_err() {
+            break;
+        }
 
         let mut input = String::new();
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Unable to process input");
+        if io::stdin().read_line(&mut input).is_err() {
+            println!("Error: Unable to process input.");
+            continue;
+        }
 
         let trimmed = input.trim();
-        if trimmed.to_ascii_lowercase() == "exit" {
+        if trimmed.eq_ignore_ascii_case("exit") {
             println!("Goodbye!");
             break;
         }
 
-        match eval(trimmed) {
-            Ok(Command::AddUser(user, department)) => {
-                add_user_to_department(user, department, &mut users);
-            }
-            Ok(Command::RetrieveUsers(department)) => retrieve_users(&users, department),
-            Err(e) => match e {
-                Error::ParseError => {
-                    println!("Error: Command format must be 'add [name] to [dept]'")
-                }
-                Error::InvalidCommandError => {
-                    println!("Error: Unknown command. Try 'add', 'retrieve', or 'exit'")
-                }
-                Error::InvalidDepartmentError => {
-                    println!("Error: Department must be Engineering, Sales, or HR.")
-                }
-            },
-        }
-    }
-}
-
-enum Command {
-    AddUser(String, Department),
-    RetrieveUsers(Option<Department>),
-}
-
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-enum Department {
-    Engineering,
-    HR,
-    Sales,
-}
-
-enum Error {
-    ParseError,
-    InvalidCommandError,
-    InvalidDepartmentError,
-}
-
-fn eval(input: &str) -> Result<Command, Error> {
-    let input_as_vec: Vec<&str> = input.split_whitespace().collect();
-
-    match input_as_vec.get(0) {
-        Some(&"add") => {
-            if input_as_vec.len() != 4 || input_as_vec[2] != "to" {
-                return Err(Error::ParseError);
-            }
-            let user = input_as_vec[1].to_string();
-            let department = match input_as_vec[3].to_ascii_lowercase().as_str() {
-                "engineering" => Department::Engineering,
-                "sales" => Department::Sales,
-                "hr" => Department::HR,
-                _ => return Err(Error::InvalidDepartmentError),
-            };
-            Ok(Command::AddUser(user, department))
-        }
-        Some(&"retrieve") => {
-            if input_as_vec.len() == 1 {
-                Ok(Command::RetrieveUsers(None))
-            } else if input_as_vec.len() == 2 {
-                let department = match input_as_vec[1].to_ascii_lowercase().as_str() {
-                    "engineering" => Department::Engineering,
-                    "sales" => Department::Sales,
-                    "hr" => Department::HR,
-                    _ => return Err(Error::InvalidDepartmentError),
-                };
-                Ok(Command::RetrieveUsers(Some(department)))
-            } else {
-                Err(Error::ParseError)
-            }
-        }
-
-        _ => Err(Error::InvalidCommandError),
-    }
-}
-
-fn add_user_to_department(user: String, department: Department, users: &mut Users) {
-    users
-        .entry(department.clone())
-        .or_default()
-        .push(user.clone());
-    println!("Successfully added {user} to {department:?}.");
-}
-
-fn retrieve_users(users: &Users, target_dept: Option<Department>) {
-    let print_dept_list = |dept: &Department, names: &Vec<String>| {
-        println!("{dept:?}:");
-        let mut sorted_names = names.clone();
-        sorted_names.sort();
-        sorted_names.iter().for_each(|name| println!("  - {name}"));
-    };
-
-    match target_dept {
-        Some(dept) => match users.get(&dept) {
-            Some(names) => print_dept_list(&dept, names),
-            None => println!("{dept:?} does not have any employees yet."),
-        },
-        None => {
-            if users.is_empty() {
-                println!("The directory is currently empty.");
-                return;
-            }
-            users
-                .iter()
-                .for_each(|(dept, names)| print_dept_list(dept, names));
+        match trimmed.parse::<Command>() {
+            Ok(Command::AddUser(user, department)) => directory.add(user, department),
+            Ok(Command::RetrieveUsers(dept)) => directory.retrieve(dept),
+            Err(e) => println!("Error: {e}"),
         }
     }
 }
