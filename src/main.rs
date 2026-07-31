@@ -1,10 +1,12 @@
 mod math_fns;
 mod string_fns;
+mod user;
+
+use math_fns::{median, mode};
+use string_fns::pig_latin;
+use user::run;
 
 fn main() {
-    use math_fns::{median, mode};
-    use string_fns::pig_latin;
-
     let integers = vec![1, 2, 3, 3, 3, 4, 5, 6, 6, 7];
 
     match median(&integers) {
@@ -18,8 +20,11 @@ fn main() {
     }
 
     let test_str = String::from("The pig eats the apple.");
+    let pig_latined_test_str = pig_latin(&test_str);
     println!(
         "In pig latin, the sentence, '{test_str}', becomes: {}",
-        pig_latin(&test_str)
-    )
+        pig_latined_test_str
+    );
+
+    run();
 }
